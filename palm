@@ -1,0 +1,230 @@
+#!/bin/bash
+
+# A function to print the usage message
+usage() {
+  echo "Usage: $0 <subcommand> [options]"
+  echo "Available subcommands:"
+  echo "  text: Generate text"
+  echo "  chat: Chat with LLM"
+  echo "  code: Ask LLM code questions"
+}
+
+version() { 
+  echo "0.1"
+}
+
+# check if the PALM API key is set and not empty, otherwise exit the script
+if [ -z "$PALM_API_KEY" ]; then
+  # The variable is not set or is empty, exit the script
+  echo "The PALM_API_KEY environment variable is not set, exiting the script"
+  exit 1
+fi
+
+BASE_URL=https://generativelanguage.googleapis.com/v1beta2
+
+# Get the first argument as the subcommand
+subcommand=$1
+
+# Shift the subcommand from the argument list
+shift
+
+# A variable to store the text to print
+model=""
+temperature=1.0
+candidates=1
+
+# If the debug variable is not empty, print it
+if [ -n "$debug" ]; then
+  echo "Using model=$model"
+fi
+
+generateText() {
+  local text=$1
+  body='{"prompt":{"text": "'"$text"'"},"temperature":'$temperature',"candidateCount":'$candidates'}'
+  result=$(curl -s $BASE_URL/models/$model:generateText?key=$PALM_API_KEY \
+      -H 'Content-Type: application/json' \
+      -X POST \
+      -d "${body}"
+  )
+  echo $result | jq -r '.candidates[0].output'
+}
+
+text_usage() {
+  echo "Usage: $0 text [-h] [-m model] [-t temperature] [-n candidates]"
+  echo "  -h:   Print this help message and exit"
+  echo "  -m:   Model to use"
+  echo "  -t:   Temperature"
+  echo "  -n:   Number of candidate responses"
+}
+
+call_text() {
+    # Define the valid options for the text subcommand
+  OPTS="mtn:"
+
+  # Parse the options using getopts
+  while getopts $OPTS opt; do
+    case $opt in
+      m) # If the -m option is given, store the argument in the text variable
+        model=$OPTARG
+        ;;
+      t) # If the -t option is given, store the argument in the text variable
+        temperature=$OPTARG
+        ;;
+      n) # If the -n option is given, store the argument in the text variable
+        candidates=$OPTARG
+        ;;
+      h)
+        # Handle the -h option, print the usage message and exit
+        text_usage
+        exit 0
+        ;;
+      \?)
+        # Handle invalid options, print an error message and exit
+        echo "Invalid option: -$OPTARG" >&2
+        text_usage
+        exit 1
+        ;;
+    esac
+  done
+
+  # if model not set then choose default text generation model
+  if [ -z "$model" ]; then
+    model="text-bison-001"
+  fi
+
+  generateText "$1"
+}
+
+generateMessage() {
+  local context=$1
+  local messages=$2
+  body='{"prompt":{"context":"'"$context"'","messages":'$messages'},"temperature":'$temperature',"candidateCount":'$candidates'}'
+
+  result=$(curl -s $BASE_URL/models/$model:generateMessage?key=$PALM_API_KEY  \
+      -H 'Content-Type: application/json' \
+      -X POST \
+      -d "${body}"
+  )
+
+  echo $result | jq -r '.candidates[0].content'
+}
+
+chat_usage() {
+  echo "Usage: $0 chat [-h] [-m model] [-t temperature] [-n candidates] [-s message] [-c]"
+  echo "  -h:   Print this help message and exit"
+  echo "  -m:   Model to use"
+  echo "  -t:   Temperature"
+  echo "  -n:   Number of candidate responses"
+  echo "  -s:   System message"
+  echo "  -c:   Continue the most recent conversation."
+}
+
+call_chat() {
+  # Define the valid options for the chat subcommand
+  OPTS="mtns:"
+
+  # Parse the options using getopts
+  while getopts $OPTS opt; do
+    case $opt in
+      m) # If the -m option is given, store the argument in the text variable
+        model=$OPTARG
+        ;;
+      t) # If the -t option is given, store the argument in the text variable
+        temperature=$OPTARG
+        ;;
+      n) # If the -n option is given, store the argument in the text variable
+        candidates=$OPTARG
+        ;;
+      s)
+        context=$OPTARG
+        ;;
+      h)
+        # Handle the -h option, print the usage message and exit
+        chat_usage
+        exit 0
+        ;;
+      \?)
+        # Handle invalid options, print an error message and exit
+        echo "Invalid option: -$OPTARG" >&2
+        chat_usage
+        exit 1
+        ;;
+    esac
+  done
+
+  # Shift the processed options
+  shift $((OPTIND-1))
+  # if model not set then choose default chat model
+  if [ -z "$model" ]; then
+    model="chat-bison-001"
+  fi
+
+  # Print welcome message
+  echo "Type 'exit' or 'quit' to exit"
+  echo "Type '!multi' to enter multiple lines, then '!end' to finish"
+
+  # Print context if provided
+  if [ -n "$context" ]; then
+    echo ""
+    echo "CONTEXT>>> $context"
+  fi
+  
+  # A variable to store the user input
+  input=""
+
+  # A loop to read user input until exit is entered
+  while true; do
+    echo ""
+    echo -n "USER>>>>>> "
+    # Read a line from standard input and store it in the input variable
+    read input
+    # Check if we need to exit or if using multi-line
+    if [ "$input" = "exit" ]; then
+      break
+    elif [ "$input" = "!multi" ]; then
+      read -d "!end" input
+    fi
+    # Update or set chat history with user input
+    if [ -z "$messages" ]; then
+      messages='{"author":"user","content":"'"$input"'"}'
+    else
+      messages=$messages',{"author":"user","content":"'"$input"'"}'
+    fi
+    # Call LLM with user input
+    output=$(generateMessage "$context" "[$messages]")
+    # Update chat history with LLM response
+    messages=$messages',{"author":"assistant","content":"'"$output"'"}'
+    # Print the LLM output
+    echo -n "ASSISTANT> "
+    echo $output
+  done
+}
+
+call_code() {
+  echo "Coding with $model"
+}
+
+
+# Handle the subcommand using a case statement
+case $subcommand in
+  text)
+    call_text "$@"
+    ;;
+  chat)
+    call_chat "$@"
+    ;;
+  code)
+    call_code "$@"
+    ;;
+  -v | --version)
+    version
+    ;;
+  -h | --help)
+    usage
+    ;;
+  *)
+    # Invalid subcommand, print an error message and exit
+    echo "Invalid subcommand: $subcommand" >&2
+    usage
+    ;;
+esac
