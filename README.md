@@ -65,3 +65,24 @@ For version, use `palm -v` or `palm --version`
 ~ ./palm -v
 0.1
 ```
+
+### Hugging Face
+
+Use the `hf` CLI to interact with Hugging Face Inference API.
+
+This script expects HF's [Access Token](https://huggingface.co/settings/tokens) to be available via the `HF_API_KEY` environment variable.
+
+For **Text Generation**, use `hf text`
+
+```shell
+~ ./hf text -m tiiuae/falcon-7b-instruct "how does search engine works"
+how does search engine works
+Search engines work by indexing and ranking websites based on their relevance to the search query. They use algorithms to crawl and index websites, and then rank them based on the relevance of the content to the query. The algorithms also take into account factors such as the number of links pointing to a website, the frequency of updates, and the quality of the content.
+```
+
+When HF API returns an error it will look like this for instance
+
+```shell
+~ ./hf text -m Intel/neural-chat-7b-v3-1 "how does search engine works"
+ERROR: The model Intel/neural-chat-7b-v3-1 is too large to be loaded automatically (14GB > 10GB). Please use Spaces (https://huggingface.co/spaces) or Inference Endpoints (https://huggingface.co/inference-endpoints).
+```

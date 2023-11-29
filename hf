@@ -1,0 +1,126 @@
+#!/bin/bash
+
+# A function to print the usage message
+usage() {
+  echo "Usage: $0 <subcommand> [options]"
+  echo "Available subcommands:"
+  echo "  text: Generate text"
+  echo "  chat: Chat with LLM"
+  echo "  code: Ask LLM code questions"
+}
+
+version() { 
+  echo "0.1"
+}
+
+# check if the Hugging Face API key is set and not empty, otherwise exit the script
+if [ -z "$HF_API_KEY" ]; then
+  # The variable is not set or is empty, exit the script
+  echo "The HF_API_KEY environment variable is not set, exiting the script"
+  exit 1
+fi
+
+BASE_URL=https://api-inference.huggingface.co
+
+# Get the first argument as the subcommand
+subcommand=$1
+# Shift the subcommand from the argument list
+shift
+
+# A variable to store the text to print
+model=""
+temperature=1.0
+candidates=1
+
+# If the debug variable is not empty, print it
+if [ -n "$debug" ]; then
+  echo "Using model=$model"
+fi
+
+generateText() {
+  local text=$1
+  body='{"inputs":"'"$text"'","parameters":{"temperature":'$temperature',"numReturnSequences":'$candidates'}}'
+  result=$(curl -s $BASE_URL/models/$model \
+      -H 'Authorization: Bearer '$HF_API_KEY'' \
+      -H 'Content-Type: application/json' \
+      -X POST \
+      -d "${body}"
+  )
+  # if result is array then take inner object
+  result=$(echo $result | jq 'if type=="array" then .[] else . end')
+  # check for errors
+  has_error=$(echo $result |jq 'has("error")')
+  if [ "$has_error" = true ]; then
+    echo "ERROR: $(echo $result |jq -r '.error')"
+  else
+    echo $result | jq -r '.generated_text'
+  fi
+}
+
+text_usage() {
+  echo "Usage: $0 text [-h] [-m model] [-t temperature] [-n candidates]"
+  echo "  -h:   Print this help message and exit"
+  echo "  -m:   Model to use"
+  echo "  -t:   Temperature"
+  echo "  -n:   Number of candidate responses"
+}
+
+call_text() {
+  # Define the valid options for the text subcommand
+  OPTS="hm:t:n:"
+
+  # Parse the options using getopts
+  while getopts $OPTS opt; do
+    case $opt in
+      m) # If the -m option is given, store the argument in the text variable
+        model=$OPTARG
+        ;;
+      t) # If the -t option is given, store the argument in the text variable
+        temperature=$OPTARG
+        ;;
+      n) # If the -n option is given, store the argument in the text variable
+        candidates=$OPTARG
+        ;;
+      h)
+        # Handle the -h option, print the usage message and exit
+        text_usage
+        exit 0
+        ;;
+      \?)
+        # Handle invalid options, print an error message and exit
+        echo "Invalid option: -$OPTARG" >&2
+        text_usage
+        exit 1
+        ;;
+    esac
+  done
+
+  # Shift the processed options
+  shift $((OPTIND-1))
+
+  # if model not set then choose default text generation model
+  if [ -z "$model" ]; then
+    echo "model is not set, exiting the script"
+    exit 1
+  fi
+
+  generateText "$@"
+}
+
+# Handle the subcommand using a case statement
+case $subcommand in
+  text)
+    call_text "$@"
+    ;;
+  -v | --version)
+    version
+    ;;
+  -h | --help)
+    usage
+    ;;
+  *)
+    # Invalid subcommand, print an error message and exit
+    echo "Invalid subcommand: $subcommand" >&2
+    usage
+    ;;
+esac
